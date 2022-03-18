@@ -4,6 +4,8 @@ import { updateUI, hide, submitButton, chatInput } from '../dom.js'
 import * as main from '../main.js'
 import { RtcConnection, message } from './rtcConnection.js'
 
+const DEBUG = true
+
 /** 
  * Signaling Service 
  * 
@@ -40,7 +42,7 @@ export class SignalService {
         this.signaler = new EventSource(this.signalURL + '/listen/' + this.callee.id)
 
         this.signaler.onopen = (e) => {
-            console.log('signaler opened!')
+            if (DEBUG) console.log('signaler opened!')
             main.start()
         }
 
@@ -76,8 +78,8 @@ export class SignalService {
             const { data } = ev
             const { from, topic, payload } = JSON.parse(data)
 
-            console.info('signaler.onmessage!', data)
-            console.log('topic', topic)
+            if (DEBUG) console.info('signaler.onmessage!', data)
+            if (DEBUG) console.log('topic', topic)
 
             switch (topic) {
                 case 'chat':
@@ -99,12 +101,12 @@ export class SignalService {
                     // I'll initiate a connection unless I'm engaged already.
                     // check if I'm already engaged in a chat.
                     if (this.rtcConn.peerConnection) {
-                        console.log(`Already connected with ${this.caller.name}, ignoring signal 'offer'!`);
+                        if (DEBUG) console.log(`Already connected with ${this.caller.name}, ignoring signal 'offer'!`);
                         return;
                     }
                     // set the callers name
                     this.caller.name = payload.name
-                    console.log(`${this.caller.name} has sent me a 'chat-offer' signal!  We'll signal an answer!`);
+                    if (DEBUG) console.log(`${this.caller.name} has sent me a 'chat-offer' signal!  We'll signal an answer!`);
                     // send the caller the identity of this callee
                     this.postMessage({ from: this.callee.id, topic: 'signalAnswer', payload: this.callee });
                     // start the RTC-connection
@@ -119,7 +121,7 @@ export class SignalService {
                     this.caller.emoji = payload.emoji
                     break;
 
-                case 'bye': // peer hung up (pressed `hangup` button )
+                case 'bye': // peer hung up
                     if (this.rtcConn.peerConnection) {
                         this.rtcConn.peerConnection.close();
                         this.rtcConn.killPeer()
@@ -137,8 +139,8 @@ export class SignalService {
 
     /**
      * By default, if the connection between the client and server closes, 
-     * the connection is `restarted`. 
-     * The connection can only be terminated with the .close() method.
+     * the client will attempt to reconnect. 
+     * The connection can only be `terminated` with the .close() method.
      */
     close() {
         this.signaler.close()
@@ -151,11 +153,12 @@ export class SignalService {
      */
     postMessage(message: SignalingMessage) {
         const msg = JSON.stringify(message)
+        // if we've opened a Datachannel, use it
         if (this.rtcConn.dataChannel && this.rtcConn.dataChannel.readyState === 'open') {
-            console.log('DataChannel >> :', msg)
+            if (DEBUG) console.log('DataChannel >> :', msg)
             this.rtcConn.dataChannel.send(msg)
-        } else { //don't send to server
-            console.log('Server >> :', msg)
+        } else { //no, just use the signal server
+            if (DEBUG) console.log('Server >> :', msg)
             fetch(this.signalURL, {
                 method: "POST",
                 body: JSON.stringify(message)
