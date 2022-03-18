@@ -1,6 +1,7 @@
 import { CANDIDATE } from '../types.js';
 import { myID, start, signaler, callee, caller } from '../main.js';
 import { hide, unhide, updateUI, submitButton, chatInput } from '../dom.js';
+const DEBUG = true;
 export class RtcConnection {
     peerConnection;
     /** The RTCDataChannel API enables peer-to-peer exchange of data */
@@ -17,7 +18,8 @@ export class RtcConnection {
      *          false if called from handleOffer()
      */
     createPeerConnection(isOfferer) {
-        console.log('Starting WebRTC as', isOfferer ? 'Offerer' : 'Offeree');
+        if (DEBUG)
+            console.log('Starting WebRTC as', isOfferer ? 'Offerer' : 'Offeree');
         this.peerConnection = new RTCPeerConnection({
             iceServers: [{
                     urls: [
@@ -44,7 +46,8 @@ export class RtcConnection {
         };
         // creating data channel 
         if (isOfferer) {
-            console.log('Offerer -> creating dataChannel!');
+            if (DEBUG)
+                console.log('Offerer -> creating dataChannel!');
             // createDataChannel is a factory method on the RTCPeerConnection object
             this.dataChannel = this.peerConnection.createDataChannel('chat');
             this.setupDataChannel();
@@ -53,7 +56,8 @@ export class RtcConnection {
             // If user is not the offerer, wait for 
             // the offerer to pass us its data channel
             this.peerConnection.ondatachannel = (event) => {
-                console.log('peerConnection.ondatachannel -> creating dataChannel!');
+                if (DEBUG)
+                    console.log('peerConnection.ondatachannel -> creating dataChannel!');
                 this.dataChannel = event.channel;
                 this.setupDataChannel();
             };
@@ -84,7 +88,8 @@ export class RtcConnection {
         // no need to do anything except show user messages
         this.dataChannel.onmessage = (event) => {
             const data = JSON.parse(event.data);
-            console.info('dataChannel.onmessage: ', data);
+            if (DEBUG)
+                console.info('dataChannel.onmessage: ', data);
             const { from, payload } = data;
             const { content, who, emoji } = payload;
             updateUI(from, content, who, emoji);
@@ -92,7 +97,8 @@ export class RtcConnection {
     }
     checkDataChannelState() {
         if (this.dataChannel) {
-            console.log('WebRTC channel state is:', this.dataChannel.readyState);
+            if (DEBUG)
+                console.log('WebRTC channel state is:', this.dataChannel.readyState);
             if (this.dataChannel.readyState === ReadyState.open) {
                 updateUI(myID, ` 👬  You're now connected to ${caller.name}!`, 'server', '');
             }
@@ -121,7 +127,8 @@ export class RtcConnection {
      */
     async handleOffer(offer) {
         if (this.peerConnection) {
-            console.log('existing peerconnection');
+            if (DEBUG)
+                console.log('existing peerconnection');
             return;
         }
         this.createPeerConnection(false);
@@ -139,7 +146,8 @@ export class RtcConnection {
      */
     async handleAnswer(answer) {
         if (!this.peerConnection) {
-            console.error('no peerconnection');
+            if (DEBUG)
+                console.error('no peerconnection');
             return;
         }
         await this.peerConnection.setRemoteDescription(answer);
@@ -151,7 +159,8 @@ export class RtcConnection {
      */
     async handleCandidate(candidate) {
         if (!this.peerConnection) {
-            console.error('no peerconnection');
+            if (DEBUG)
+                console.error('no peerconnection');
             return;
         }
         try {
