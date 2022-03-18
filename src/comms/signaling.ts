@@ -8,9 +8,10 @@ import { RtcConnection, message } from './rtcConnection.js'
  * Signaling Service 
  * 
  * This service handles signaling and iceCandidate exchange
- * to establish one or more WebRTC Connection instances
- * We'll connect to a server that streams messages to our local
- * EventSource instance
+ * to establish one or more WebRTC Connection instances.
+ * 
+ * We'll be connecting to a server that streams messages 
+ * to our local EventSource instance
  * 
  * */
 export class SignalService {
@@ -20,12 +21,10 @@ export class SignalService {
     callee: Peer
     rtcConn: RtcConnection
     signalURL = ''
-    /** Signaling ctor 
-     * @param {ServiceType} - serviceType - service transport type    
-     *       one of: WebSocket or BroadcastChannel
-     * @param {string} - url - the WebSocket-URL or a name for the BroadcastChannel
-     * @param {string} - thisname - the initial callee name
-    */
+
+    /** 
+     * Signaling ctor 
+     */
     constructor(thisname: string, id: string, thisEmoji: string, url: string) {
 
         this.rtcConn = new RtcConnection(thisname)
@@ -63,7 +62,7 @@ export class SignalService {
                 })
             }
         })
-        
+
         // When problems occur (such as a network timeout,
         // or issues pertaining to access control), 
         // an error event is generated. 
@@ -73,7 +72,6 @@ export class SignalService {
 
         // Handle incoming messages from the signaling server.
         // for incoming messages that `DO NOT` have an event field on them 
-        //
         this.signaler.onmessage = (ev) => {
             const { data } = ev
             const { from, topic, payload } = JSON.parse(data)
@@ -136,37 +134,6 @@ export class SignalService {
         };
 
     }
-    // /** 
-    //  * Dispatches a message event to all registered listeners with optional data     
-    //  * Called from both `socket.onmessage` and from WebRTC.`dataChannel.onmessage`. 	  
-    //  * @example dispatch( message.ResetTurn, {currentPeerIndex: 1} )    
-    //  * @param(string) topic - the topic of interest
-    //  * @param(string | object) - data - optional data to report to subscribers
-    //  */
-    // dispatch(topic: message, data: string | string[] | object) {
-    //     if (this.subscriptions.has(topic)) {
-    //         const subs = this.subscriptions.get(topic)!
-    //         if (subs) {
-    //             for (const callback of subs) {
-    //                 callback(data != undefined ? data : {})
-    //             }
-    //         }
-    //     }
-    // }
-
-    //     /**
-    //  *  registers a callback function to be executed when a topic-message is recieved
-    //  *	@example onSignalRecieved(message.ResetTurn, this.resetTurn)
-    //  *	@param(string) topic - the topic of interest
-    //  *	@param(function) listener - a callback function
-    //  */
-    //     onSignalRecieved(topic: number, listener: Function) {
-    //         if (!this.subscriptions.has(topic)) {
-    //             this.subscriptions.set(topic, [])
-    //         }
-    //         const callbacks = this.subscriptions.get(topic)!
-    //         callbacks.push(listener)
-    //     }
 
     /**
      * By default, if the connection between the client and server closes, 
@@ -177,12 +144,10 @@ export class SignalService {
         this.signaler.close()
     }
 
-    /** postMessage sends messages to peers via a signal service  
-     * @param {SignalMessage type} - message - message payload
-     * 
-     * if (webRTC.dataChannel && webRTC.dataChannel.readyState === 'open') {
-        if (DEBUG) console.log('DataChannel >> :', msg)
-        webRTC.dataChannel.send(msg)
+    /** 
+     * PostMessage sends messages to peers via a signal service 
+     * or via an opened WebRTC DataChannel 
+     * @param message {SignalMessage} - message - message payload
      */
     postMessage(message: SignalingMessage) {
         const msg = JSON.stringify(message)
