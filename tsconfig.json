@@ -1,0 +1,12 @@
+{
+    "compilerOptions": {
+        "target": "ESnext",
+        "module":"ESnext",
+        "outDir": "./public",
+        "noImplicitAny": false,
+        "removeComments": false
+    },
+    "include": [
+        "src/**/*",
+    ]
+}

@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+ 
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width">
+    <link rel="shortcut icon" type="image/x-icon" href="0.png">
+    <link rel=stylesheet href=./styles.css>
+    <title>Private Chat</title>
+</head>
+
+<body>
+
+    <div class="content">
+        <div class="header">
+            <pre class='banner' id='banner'></pre>
+        </div>
+        <div class="messages"></div>
+        <form class="footer" onsubmit='return false;'>
+            <input type="text" id="chatInput" autocomplete="off" placeholder="Your message..">
+            <button id='submitButton' type="submit">Send</button>    
+        </form>
+    </div>
+
+    <template data-template="message">
+        <div class="message">
+            <div class="message__name"></div>
+            <div class="message__bubble"></div>
+        </div>
+    </template>
+
+    <script type='module' src="./main.js"></script>
+
+</body>
+
+</html>
