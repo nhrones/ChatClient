@@ -1,8 +1,12 @@
+import { ReadyState, } from './RTClib.js';
 import { CANDIDATE } from '../types.js';
 import { myID, start, signaler, callee, caller } from '../main.js';
 import { hide, unhide, updateUI, submitButton, chatInput } from '../dom.js';
 const DEBUG = true;
-export class RtcConnection {
+/**
+ * webRTC class
+ */
+export class webRTC {
     peerConnection;
     /** The RTCDataChannel API enables peer-to-peer exchange of data */
     dataChannel;
@@ -124,7 +128,7 @@ export class RtcConnection {
     /**
      * handle a Session-Description-Offer
      * @param {RTCSessionDescriptionInit} offer - {topic: string, sdp: string}
-     */
+     */ //todo move external
     async handleOffer(offer) {
         if (this.peerConnection) {
             if (DEBUG)
@@ -133,7 +137,6 @@ export class RtcConnection {
         }
         this.createPeerConnection(false);
         await this.peerConnection.setRemoteDescription(offer);
-        unhide(chatInput);
         const answer = await this.peerConnection.createAnswer();
         signaler.postMessage({ from: callee.id, topic: 'answer', payload: { type: 'answer', sdp: answer.sdp } });
         // Note that RTCPeerConnection won't start gathering 
@@ -176,12 +179,12 @@ export class RtcConnection {
         }
     }
 }
-export const ReadyState = {
-    closed: 'closed',
-    closing: 'closing',
-    connecting: 'connecting',
-    open: 'open',
-};
+// export const ReadyState = {
+//     closed: 'closed',
+//     closing: 'closing',
+//     connecting: 'connecting',
+//     open: 'open',
+// }
 /**
  * WebRTC signal eventlist
  */

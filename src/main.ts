@@ -31,8 +31,8 @@ const SignalServerURL = (host === '127.0.0.1' || host === 'localhost')
 
 console.log('SignalServerURL',SignalServerURL)
 
-
 export const signaler = new SignalService(name, myID, Emoji[eNum], SignalServerURL)
+
 export const { caller, callee } = signaler;
 
 // initialize all UI DOM elements
@@ -47,7 +47,7 @@ export const start = () => {
       every 15 seconds or so.
     */
     console.log('main.start')
-    signaler.postMessage({from: callee.id, topic: 'signalOffer', payload: callee });
+    signaler.postMessage({from: callee.id, topic: 'invitation', payload: callee });
     hide(submitButton)
     hide(chatInput);
 }

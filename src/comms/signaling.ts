@@ -1,8 +1,8 @@
 
 import { Peer, Emoji, SignalingMessage } from '../types.js'
-import { updateUI, hide, submitButton, chatInput } from '../dom.js'
+import { updateUI, hide, unhide, submitButton, chatInput } from '../dom.js'
 import * as main from '../main.js'
-import { RtcConnection, message } from './rtcConnection.js'
+import { webRTC, message } from './webRTC.js'
 
 const DEBUG = true
 
@@ -18,10 +18,10 @@ const DEBUG = true
  * */
 export class SignalService {
 
-    signaler: EventSource
+    sse: EventSource
     caller: Peer
     callee: Peer
-    rtcConn: RtcConnection
+    rtcConn: webRTC
     signalURL = ''
 
     /** 
@@ -29,7 +29,7 @@ export class SignalService {
      */
     constructor(thisname: string, id: string, thisEmoji: string, url: string) {
 
-        this.rtcConn = new RtcConnection(thisname)
+        this.rtcConn = new webRTC(thisname)
 
         this.signalURL = url
 
@@ -39,17 +39,17 @@ export class SignalService {
         // When I get that offer, I'll set up the caller object?    
         this.caller = { id: '', name: '', emoji: Emoji[0] }
 
-        this.signaler = new EventSource(this.signalURL + '/listen/' + this.callee.id)
+        this.sse = new EventSource(this.signalURL + '/listen/' + this.callee.id)
 
-        this.signaler.onopen = (e) => {
-            if (DEBUG) console.log('signaler opened!')
+        this.sse.onopen = (e) => {
+            if (DEBUG) console.log('sse opened!')
             main.start()
         }
 
 
         // close the sse when the window closes
         window.addEventListener('beforeunload', () => {
-            if (this.signaler.readyState === 1) {
+            if (this.sse.readyState === 1) {
                 const sigMsg = JSON.stringify(
                     {
                         from: id,
@@ -68,17 +68,17 @@ export class SignalService {
         // When problems occur (such as a network timeout,
         // or issues pertaining to access control), 
         // an error event is generated. 
-        this.signaler.onerror = (err) => {
-            console.error('Signaler(EventSource) failed: ', err)
+        this.sse.onerror = (err) => {
+            console.error('sse(EventSource) failed: ', err)
         }
 
         // Handle incoming messages from the signaling server.
         // for incoming messages that `DO NOT` have an event field on them 
-        this.signaler.onmessage = (ev) => {
+        this.sse.onmessage = (ev) => {
             const { data } = ev
             const { from, topic, payload } = JSON.parse(data)
 
-            if (DEBUG) console.info('signaler.onmessage!', data)
+            if (DEBUG) console.info('sse.onmessage!', data)
             if (DEBUG) console.log('topic', topic)
 
             switch (topic) {
@@ -88,6 +88,7 @@ export class SignalService {
                     break;
                 case 'offer': // a peer has made an offer (SDP)
                     this.rtcConn.handleOffer(payload);
+                    unhide(chatInput);
                     break;
 
                 case 'answer': // a peer has sent an answer (SDP)
@@ -97,7 +98,7 @@ export class SignalService {
                 case 'candidate': // calls peer onicecandidate with new candidate
                     this.rtcConn.handleCandidate(payload);
                     break;
-                case 'signalOffer': // A peer is offering to chat
+                case 'invitation': // A peer is offering to chat
                     // I'll initiate a connection unless I'm engaged already.
                     // check if I'm already engaged in a chat.
                     if (this.rtcConn.peerConnection) {
@@ -108,11 +109,11 @@ export class SignalService {
                     this.caller.name = payload.name
                     if (DEBUG) console.log(`${this.caller.name} has sent me a 'chat-offer' signal!  We'll signal an answer!`);
                     // send the caller the identity of this callee
-                    this.postMessage({ from: this.callee.id, topic: 'signalAnswer', payload: this.callee });
+                    this.postMessage({ from: this.callee.id, topic: 'acceptInvitation', payload: this.callee });
                     // start the RTC-connection
                     this.rtcConn.makeConnection();
                     break;
-                case 'signalAnswer': // someone's answering our offer!
+                case 'acceptInvitation': // someone's answering our offer!
                     // a role change is required
                     // set the new callers name
                     this.caller.name = payload.name
@@ -143,7 +144,7 @@ export class SignalService {
      * The connection can only be `terminated` with the .close() method.
      */
     close() {
-        this.signaler.close()
+        this.sse.close()
     }
 
     /** 

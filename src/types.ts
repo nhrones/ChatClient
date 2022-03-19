@@ -17,7 +17,7 @@ export type Peer = {
 }
 
 /** Signal Message Topic type */
-type Topic = 'bye' | 'offer' | 'answer' | 'candidate' | 'signalOffer' | 'signalAnswer' | 'chat';
+type Topic = 'offer' | 'answer' | 'candidate' | 'invitation' | 'acceptInvitation' | 'chat' | 'bye' ;
 type ChatPayload = {
     content: string,
     who: string,

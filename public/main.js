@@ -34,7 +34,7 @@ export const start = () => {
       every 15 seconds or so.
     */
     console.log('main.start');
-    signaler.postMessage({ from: callee.id, topic: 'signalOffer', payload: callee });
+    signaler.postMessage({ from: callee.id, topic: 'invitation', payload: callee });
     hide(submitButton);
     hide(chatInput);
 };
