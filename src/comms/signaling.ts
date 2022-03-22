@@ -1,169 +1,166 @@
 
-import { Peer, Emoji, SignalingMessage } from '../types.js'
-import { updateUI, hide, unhide, submitButton, chatInput } from '../dom.js'
-import * as main from '../main.js'
-import { webRTC, message } from './webRTC.js'
+import {
+    initPeers, 
+    Emoji, 
+    callee, 
+    registerPeer
+} from './peers.js'
+
+import * as webRTC from './webRTC.js'
 
 const DEBUG = true
 
-/** 
- * Signaling Service 
- * 
- * This service handles signaling and iceCandidate exchange
- * to establish one or more WebRTC Connection instances.
- * 
- * We'll be connecting to a server that streams messages 
- * to our local EventSource instance
- * 
- * */
-export class SignalService {
-
-    sse: EventSource
-    caller: Peer
-    callee: Peer
-    rtcConn: webRTC
-    signalURL = ''
-
-    /** 
-     * Signaling ctor 
-     */
-    constructor(thisname: string, id: string, thisEmoji: string, url: string) {
-
-        this.rtcConn = new webRTC(thisname)
-
-        this.signalURL = url
-
-        // I'm expecting to get a 'signalOffer', where I would be the callee       
-        this.callee = { id: id, name: thisname, emoji: thisEmoji }
-
-        // When I get that offer, I'll set up the caller object?    
-        this.caller = { id: '', name: '', emoji: Emoji[0] }
-
-        this.sse = new EventSource(this.signalURL + '/listen/' + this.callee.id)
-
-        this.sse.onopen = (e) => {
-            if (DEBUG) console.log('sse opened!')
-            main.start()
-        }
+ // set the correct url for our signal-service
+const host = window.location.hostname
+const SignalServerURL = 'https://rtc-signal-server.deno.dev'
+export const serviceURL = (host === '127.0.0.1' || host === 'localhost')
+    ? 'http://localhost:8000'
+    : SignalServerURL
+console.log('serviceURL', serviceURL)
 
 
-        // close the sse when the window closes
-        window.addEventListener('beforeunload', () => {
-            if (this.sse.readyState === 1) {
-                const sigMsg = JSON.stringify(
-                    {
-                        from: id,
-                        event: 'close',
-                        data: id + ' window was closed!',
-                        id: 0
-                    }
-                )
-                fetch(this.signalURL, {
-                    method: "POST",
-                    body: sigMsg
+/**  Each Map-entry holds an array of callback functions mapped to an Event name */
+const subscriptions = new Map<number | string, Function[]>()
+
+/** sse - Server Sent Events listener    
+ * An EventSource instance opens a persistent     
+ * connection to an HTTP server, which sends events     
+ * in text/event-stream format. The connection remains     
+ * open until closed by calling EventSource.close(). */
+export let sse: EventSource
+
+
+/** Initializes this signal service event listeners */
+export const initialize = (name: string, id: string, emoji = Emoji[0]) => {
+    
+    // if we've already initialized just return
+    if (sse) { return }
+    
+    // setup peers
+    initPeers(id, name)
+    
+    // close the sse when the window closes
+    window.addEventListener('beforeunload', () => {
+        if (sse.readyState === SSE.OPEN) {
+            const sigMsg = JSON.stringify({
+                    from: callee.id,
+                    event: 'close',
+                    data: callee.id + ' window was closed!',
+                    id: 0
                 })
-            }
-        })
-
-        // When problems occur (such as a network timeout,
-        // or issues pertaining to access control), 
-        // an error event is generated. 
-        this.sse.onerror = (err) => {
-            console.error('sse(EventSource) failed: ', err)
-        }
-
-        // Handle incoming messages from the signaling server.
-        // for incoming messages that `DO NOT` have an event field on them 
-        this.sse.onmessage = (ev) => {
-            const { data } = ev
-            const { from, topic, payload } = JSON.parse(data)
-
-            if (DEBUG) console.info('sse.onmessage!', data)
-            if (DEBUG) console.log('topic', topic)
-
-            switch (topic) {
-                case 'chat':
-                    const { content, who, emoji } = payload
-                    updateUI(from, content, who, emoji)
-                    break;
-                case 'offer': // a peer has made an offer (SDP)
-                    this.rtcConn.handleOffer(payload);
-                    unhide(chatInput);
-                    break;
-
-                case 'answer': // a peer has sent an answer (SDP)
-                    this.rtcConn.handleAnswer(payload);
-                    break;
-
-                case 'candidate': // calls peer onicecandidate with new candidate
-                    this.rtcConn.handleCandidate(payload);
-                    break;
-                case 'invitation': // A peer is offering to chat
-                    // I'll initiate a connection unless I'm engaged already.
-                    // check if I'm already engaged in a chat.
-                    if (this.rtcConn.peerConnection) {
-                        if (DEBUG) console.log(`Already connected with ${this.caller.name}, ignoring signal 'offer'!`);
-                        return;
-                    }
-                    // set the callers name
-                    this.caller.name = payload.name
-                    if (DEBUG) console.log(`${this.caller.name} has sent me a 'chat-offer' signal!  We'll signal an answer!`);
-                    // send the caller the identity of this callee
-                    this.postMessage({ from: this.callee.id, topic: 'acceptInvitation', payload: this.callee });
-                    // start the RTC-connection
-                    this.rtcConn.makeConnection();
-                    break;
-                case 'acceptInvitation': // someone's answering our offer!
-                    // a role change is required
-                    // set the new callers name
-                    this.caller.name = payload.name
-                    // swap emojis
-                    this.callee.emoji = this.caller.emoji
-                    this.caller.emoji = payload.emoji
-                    break;
-
-                case 'bye': // peer hung up
-                    if (this.rtcConn.peerConnection) {
-                        this.rtcConn.peerConnection.close();
-                        this.rtcConn.killPeer()
-                    }
-                    hide(submitButton)
-                    hide(chatInput);
-                    break;
-
-                default:
-                    break;
-            }
-        };
-
-    }
-
-    /**
-     * By default, if the connection between the client and server closes, 
-     * the client will attempt to reconnect. 
-     * The connection can only be `terminated` with the .close() method.
-     */
-    close() {
-        this.sse.close()
-    }
-
-    /** 
-     * PostMessage sends messages to peers via a signal service 
-     * or via an opened WebRTC DataChannel 
-     * @param message {SignalMessage} - message - message payload
-     */
-    postMessage(message: SignalingMessage) {
-        const msg = JSON.stringify(message)
-        // if we've opened a Datachannel, use it
-        if (this.rtcConn.dataChannel && this.rtcConn.dataChannel.readyState === 'open') {
-            if (DEBUG) console.log('DataChannel >> :', msg)
-            this.rtcConn.dataChannel.send(msg)
-        } else { //no, just use the signal server
-            if (DEBUG) console.log('Server >> :', msg)
-            fetch(this.signalURL, {
+            fetch(serviceURL, {
                 method: "POST",
-                body: JSON.stringify(message)
+                body: sigMsg
             })
         }
+    })
+
+    sse = new EventSource(serviceURL + '/listen/' + id)
+
+    sse.onopen = () => {
+        if (DEBUG) console.log('Sse.onOpen! >>>  webRTC.start()');
+        webRTC.initialize()
     }
+
+    // this is most always peer-count exceeded!
+    sse.onerror = (err) => {
+        if (DEBUG) console.error('sse.error!', err);
+        dispatch('ShowPopup', `Seats Full! Please close tab!`)
+    }
+
+    sse.onmessage = (msg: MessageEvent) => {
+        if (DEBUG) console.log('<<<<  signaler got  <<<<  ', msg.data)
+        const msgObject = JSON.parse(msg.data)
+        if (DEBUG) console.info('      parsed data = ', msgObject)
+        const event = msgObject.event
+        if (DEBUG) console.info('               event: ', event)
+        dispatch(event, msgObject.data)
+    }
+
+    // SetID-Event listener. 
+    // On connect, the signal-service will send our new ID.
+    sse.addEventListener('SetID', (ev: MessageEvent) => {
+        const msgObject = JSON.parse(ev.data)
+        const { data } = msgObject
+        registerPeer( data.id, callee.name )
+        // dispatch this event to any subscribers     
+        dispatch('SetID', { id: data.id, name: callee.name })
+        webRTC.start()
+    })
+}
+
+/** report the current `readyState` of the connection */
+export const getState = (msg: string) => {
+    if (sse.readyState === SSE.CONNECTING) console.log(msg + ' - ' + 'SSE-State - connecting')
+    if (sse.readyState === SSE.OPEN) console.log(msg + ' - ' + 'SSE-State - open')
+    if (sse.readyState === SSE.CLOSED) console.log(msg + ' - ' + 'SSE-State - closed')
+}
+
+/** disconnect - Stop the event stream from the client, 
+ * we simply invoked the close() method of the eventSource object. 
+ * Closing the event stream on the client doesn't automatically 
+ * closes the connection on the server side. Unfortunately, 
+ * the server will continue to send events to the client. 
+ * To avoid this, we'll need to add an event handler for 
+ * the close event on the server. */
+export const disconnect = () => {
+    // closes the connection from the client side
+    sse.close()
+    getState('Disconnecting streamedEvents!')
+}
+
+/** Dispatch a message event to all registered listeners with optional data      	  
+ * @example dispatch('ResetTurn', {currentPeerIndex: 1} )    
+ * @param event (string) - the event of interest
+ * @param data (string | string[] | object) - optional data to report to subscribers
+ */
+export const dispatch = (event: string, data: string | string[] | object) => {
+    if (subscriptions.has(event)) {
+        const subs = subscriptions.get(event)!
+        if (subs) {
+            for (const callback of subs) {
+                callback(data != undefined ? data : {})
+            }
+        }
+    }
+}
+
+/** registers a callback function to be executed when a event is published
+ *	@example onEvent('ResetTurn', this.resetTurn)
+ *	@param event (string) - the event of interest
+ *	@param listener (function) - a callback function */
+export const onEvent = (event: number | string, listener: Function) => {
+    if (!subscriptions.has(event)) { subscriptions.set(event, []) }
+    const callbacks = subscriptions.get(event)!
+    callbacks.push(listener)
+}
+
+/** Sends a message to the signal service to be broadcast to peers
+ *	@param msg (SignalingMessage) - contains both `event` and `data` */
+export const signal = (msg: SignalingMessage) => {
+    if (sse.readyState === SSE.OPEN) {
+        const sigMsg = JSON.stringify({ from: callee.id, event: msg.event, data: msg.data })
+        if (DEBUG) console.log('>>>>  sig-server  >>>> :', sigMsg)
+        fetch(serviceURL, {
+            method: "POST",
+            body: sigMsg
+        })
+    } else {
+        if (DEBUG) {
+            console.error('No place to send the message:', msg.event)
+        }
+    }
+}
+
+/** SSE ReadyState */
+export const SSE = {
+    CONNECTING: 0,
+    OPEN: 1,
+    CLOSED: 2
+}
+
+/** SignalingMessage type */
+export type SignalingMessage = {
+    event: string,
+    data: RTCSessionDescriptionInit | RTCIceCandidateInit | object | string[] | string,
 }

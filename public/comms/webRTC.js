@@ -1,198 +1,196 @@
-import { ReadyState, } from './RTClib.js';
-import { CANDIDATE } from '../types.js';
-import { myID, start, signaler, callee, caller } from '../main.js';
-import { hide, unhide, updateUI, submitButton, chatInput } from '../dom.js';
+import { callee, caller, setCaller } from './peers.js';
+import { dispatch, onEvent, signal } from './signaling.js';
 const DEBUG = true;
-/**
- * webRTC class
- */
-export class webRTC {
-    peerConnection;
-    /** The RTCDataChannel API enables peer-to-peer exchange of data */
-    dataChannel;
-    RTCopen = false;
-    channelName = '';
-    constructor(name) {
-        this.channelName = name;
-    }
-    /**
-     * creates a peer connection
-     * @param {boolean} - isOfferer - we're making the offer
-     *          true if called by makeCall()
-     *          false if called from handleOffer()
-     */
-    createPeerConnection(isOfferer) {
-        if (DEBUG)
-            console.log('Starting WebRTC as', isOfferer ? 'Offerer' : 'Offeree');
-        this.peerConnection = new RTCPeerConnection({
-            iceServers: [{
-                    urls: [
-                        "stun:stun1.l.google.com:19302",
-                        "stun:stun2.l.google.com:19302"
-                    ]
-                }]
-        });
-        // local ICE layer passes candidates to us for delivery 
-        // to the remote peer over the signaling channel
-        this.peerConnection.onicecandidate = (e) => {
-            const init = {
-                candidate: null,
-                sdpMid: "",
-                sdpMLineIndex: 0
-            };
-            if (e.candidate) {
-                init.candidate = e.candidate.candidate;
-                init.sdpMid = e.candidate.sdpMid;
-                init.sdpMLineIndex = e.candidate.sdpMLineIndex;
-            }
-            // sent over the signaler to the remote peer.
-            signaler.postMessage({ from: callee.id, topic: CANDIDATE, payload: init });
-        };
-        // creating data channel 
-        if (isOfferer) {
+///////////////////////////////////////////////////////////////////
+// The RTCDataChannel API enables peer-to-peer exchange of data  //
+///////////////////////////////////////////////////////////////////
+export let peerConnection;
+export let dataChannel;
+export let RTCopen = false;
+/** initialize a WebRtc signaling session */
+export const initialize = () => {
+    // handle a Session-Description-Offer 
+    onEvent('RtcOffer', async (data) => {
+        // a callee sent us an offer, lets set the caller
+        setCaller(data.from);
+        if (peerConnection) {
             if (DEBUG)
-                console.log('Offerer -> creating dataChannel!');
-            // createDataChannel is a factory method on the RTCPeerConnection object
-            this.dataChannel = this.peerConnection.createDataChannel('chat');
-            this.setupDataChannel();
+                console.error('existing peerconnection');
+            return;
+        }
+        createPeerConnection(false);
+        await peerConnection.setRemoteDescription(data.data);
+        const answer = await peerConnection.createAnswer();
+        signal({ event: 'RtcAnswer', data: { type: 'answer', sdp: answer.sdp } });
+        // Note: the RTCPeerConnection won't start gathering 
+        // candidates until setLocalDescription() is called.
+        await peerConnection.setLocalDescription(answer);
+    });
+    // handle a Session-Description-Answer 
+    onEvent('RtcAnswer', async (answer) => {
+        if (!peerConnection) {
+            if (DEBUG)
+                console.error('no peerconnection');
+            return;
+        }
+        await peerConnection.setRemoteDescription(answer);
+    });
+    // handle ICE-Candidate
+    onEvent('candidate', async (candidate) => {
+        if (!peerConnection) {
+            if (DEBUG)
+                console.error('no peerconnection');
+            return;
+        }
+        console.log('handling candidate!');
+        if (!candidate.candidate) {
+            await peerConnection.addIceCandidate(null);
         }
         else {
-            // If user is not the offerer, wait for 
-            // the offerer to pass us its data channel
-            this.peerConnection.ondatachannel = (event) => {
-                if (DEBUG)
-                    console.log('peerConnection.ondatachannel -> creating dataChannel!');
-                this.dataChannel = event.channel;
-                this.setupDataChannel();
-            };
+            await peerConnection.addIceCandidate(candidate);
         }
-    }
-    killPeer() {
-        this.peerConnection = null;
-    }
-    /**
-     * Resets the peerConnection and dataChannel, then calls 'start()'
-     * */
-    reset() {
-        this.dataChannel = null;
-        this.peerConnection = null;
-        hide(submitButton);
-        hide(chatInput);
-        start();
-    }
-    // Hook up data channel event handlers
-    setupDataChannel() {
-        this.dataChannel.onopen = () => {
-            this.checkDataChannelState();
-        };
-        this.dataChannel.onclose = () => {
-            this.checkDataChannelState();
-        };
-        // We're now messaging on the DataChannel ... no more signaling. 
-        // no need to do anything except show user messages
-        this.dataChannel.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            if (DEBUG)
-                console.info('dataChannel.onmessage: ', data);
-            const { from, payload } = data;
-            const { content, who, emoji } = payload;
-            updateUI(from, content, who, emoji);
-        };
-    }
-    checkDataChannelState() {
-        if (this.dataChannel) {
-            if (DEBUG)
-                console.log('WebRTC channel state is:', this.dataChannel.readyState);
-            if (this.dataChannel.readyState === ReadyState.open) {
-                updateUI(myID, ` 👬  You're now connected to ${caller.name}!`, 'server', '');
-            }
-            else if (this.dataChannel.readyState === ReadyState.closed) {
-                updateUI(myID, `👀  ${caller.name} was disconnected! Waiting for
- new offer on: ${location.origin}`, 'server', '');
-                // reset everything and restart
-                caller.name = '';
-                caller.id = '';
-                caller.emoji = '';
-                this.reset();
-            }
+    });
+    onEvent('close', () => {
+        if (peerConnection) {
+            peerConnection.close();
+            peerConnection = null;
         }
-    }
-    async makeConnection() {
-        this.createPeerConnection(true);
-        const offer = await this.peerConnection.createOffer();
-        signaler.postMessage({ from: callee.id, topic: 'offer', payload: { type: 'offer', sdp: offer.sdp } });
-        // Note that RTCPeerConnection won't start gathering 
-        // candidates until setLocalDescription() is called.
-        await this.peerConnection.setLocalDescription(offer);
-    }
-    /**
-     * handle a Session-Description-Offer
-     * @param {RTCSessionDescriptionInit} offer - {topic: string, sdp: string}
-     */ //todo move external
-    async handleOffer(offer) {
-        if (this.peerConnection) {
+    });
+    // A peer is offering to connect
+    onEvent('invitation', (data) => {
+        // I'll initiate an RTC-connection unless I'm engaged already.
+        if (peerConnection) {
             if (DEBUG)
-                console.log('existing peerconnection');
+                console.log(`Already connected, ignoring this 'invitation'!`);
             return;
         }
-        this.createPeerConnection(false);
-        await this.peerConnection.setRemoteDescription(offer);
-        const answer = await this.peerConnection.createAnswer();
-        signaler.postMessage({ from: callee.id, topic: 'answer', payload: { type: 'answer', sdp: answer.sdp } });
-        // Note that RTCPeerConnection won't start gathering 
-        // candidates until setLocalDescription() is called.
-        await this.peerConnection.setLocalDescription(answer);
+        // we got an invitation from a caller-peer
+        setCaller(data);
+        if (DEBUG)
+            console.log(`A peer named ${data.name} has sent me an 'invitation'!  I'll make a  WebRTC-connection!`);
+        // start the RTC-connection
+        makeConnection();
+    });
+    // Finaly ... tell them your listening/waiting
+    dispatch('UpdateUI', `⌛  ${callee.name} is waiting for a connection\n from: ${location.origin}`);
+};
+/** Start the peerConnection process by signaling an invitation */
+export const start = () => {
+    // invite any peer, then wait for an `accept` message
+    console.info('inviting from start - callee:', callee);
+    signal({ event: 'invitation', data: callee });
+};
+/** Resets the peerConnection and dataChannel, and calls 'start()' */
+function reset(msg) {
+    dataChannel = null;
+    peerConnection = null;
+    start();
+    dispatch('ShowPopup', msg);
+}
+/** creates a new peer connection
+ * @param(boolean) isOfferor - are we making the offer?
+ *   true when called by makeConnection() - we are sending an offer
+ *   false when called from signaler.when('RtcOffer') - someone else sent us an offer */
+function createPeerConnection(isOfferor) {
+    if (DEBUG)
+        console.log('Starting WebRTC as', isOfferor ? 'Offeror' : 'Offeree');
+    peerConnection = new RTCPeerConnection({
+        iceServers: [{ urls: ["stun:stun1.l.google.com:19302", "stun:stun2.l.google.com:19302"] }]
+    });
+    // local ICE layer passes `candidates` to us for delivery 
+    // to the remote peer over the signaling channel
+    peerConnection.onicecandidate = (event) => {
+        const init = {
+            candidate: null,
+            sdpMid: "",
+            sdpMLineIndex: 0
+        };
+        if (event.candidate) {
+            init.candidate = event.candidate.candidate;
+            init.sdpMid = event.candidate.sdpMid;
+            init.sdpMLineIndex = event.candidate.sdpMLineIndex;
+        }
+        // signal the remote peer.
+        signal({ event: 'candidate', data: init });
+    };
+    // creating data channel 
+    if (isOfferor) {
+        if (DEBUG)
+            console.log('Offeror -> creating dataChannel!');
+        // createDataChannel is a factory method on the RTCPeerConnection object
+        dataChannel = peerConnection.createDataChannel('chat');
+        setupDataChannel();
     }
-    /**
-     * handle a Session-Description-Answer
-     * @param {RTCSessionDescriptionInit} answer - {type: string, sdp: string}
-     */
-    async handleAnswer(answer) {
-        if (!this.peerConnection) {
+    else {
+        // If this peer is not the `offeror`, wait for 
+        // the offeror to pass us a DataChannel
+        peerConnection.ondatachannel = (event) => {
             if (DEBUG)
-                console.error('no peerconnection');
-            return;
-        }
-        await this.peerConnection.setRemoteDescription(answer);
-        unhide(chatInput);
+                console.log('peerConnection.ondatachannel -> creating dataChannel!');
+            dataChannel = event.channel;
+            setupDataChannel();
+        };
     }
-    /**
-     * handle ICE-Candidate
-     * @param {RTCIceCandidateInit} candidate - RTCIceCandidateInit
-     */
-    async handleCandidate(candidate) {
-        if (!this.peerConnection) {
-            if (DEBUG)
-                console.error('no peerconnection');
-            return;
+}
+/** Hook up data channel event handlers */
+function setupDataChannel() {
+    //checkDataChannelState();
+    dataChannel.onopen = checkDataChannelState;
+    dataChannel.onclose = checkDataChannelState;
+    // dataChannel and signaler both call signaler.dispatch
+    // as game-state events can come from either
+    dataChannel.onmessage = (ev) => {
+        const msg = JSON.parse(ev.data);
+        const { event, data } = msg;
+        if (DEBUG)
+            console.info('<<<<  DataChannel got  <<<<  ', event);
+        dispatch(event, data);
+    };
+}
+/** check the state of the DataChannel */
+function checkDataChannelState() {
+    if (dataChannel.readyState === ReadyState.open) {
+        if (RTCopen === false) {
+            RTCopen = true;
+            console.info('&&&&&&&&&&&&&&&&&&&&&&&&&&&&&caller:', caller);
+            dispatch('UpdateUI', `${callee.name} is now connected to ${caller.name}`);
         }
-        try {
-            if (!candidate.candidate) {
-                await this.peerConnection.addIceCandidate(null);
-            }
-            else {
-                await this.peerConnection.addIceCandidate(candidate);
-            }
-        }
-        catch (er) {
-            console.info(er);
+    }
+    else if (dataChannel.readyState === ReadyState.closed) {
+        if (RTCopen === true) {
+            RTCopen = false;
+            dispatch('PeerDisconnected', `${caller.name} has disconnected!`);
+            reset(`${caller.name} has disconnected!`);
         }
     }
 }
-// export const ReadyState = {
-//     closed: 'closed',
-//     closing: 'closing',
-//     connecting: 'connecting',
-//     open: 'open',
-// }
+export async function makeConnection() {
+    createPeerConnection(true);
+    const offer = await peerConnection.createOffer();
+    signal({ event: 'RtcOffer', data: { from: callee, data: { type: 'offer', sdp: offer.sdp } } });
+    // Note that RTCPeerConnection won't start gathering 
+    // candidates until setLocalDescription() is called.
+    await peerConnection.setLocalDescription(offer);
+}
 /**
- * WebRTC signal eventlist
- */
-export var message;
-(function (message) {
-    message[message["Bye"] = 11] = "Bye";
-    message[message["RtcOffer"] = 12] = "RtcOffer";
-    message[message["RtcAnswer"] = 13] = "RtcAnswer";
-    message[message["candidate"] = 14] = "candidate";
-    message[message["invitation"] = 15] = "invitation";
-})(message || (message = {}));
+ *  Send an RtcDataChannel message to the peer
+ *	@param msg (SignalingMessage) - both `event` and `data`
+  */
+export const sendSignal = (msg) => {
+    if (dataChannel && dataChannel.readyState === 'open') {
+        const jsonMsg = JSON.stringify(msg);
+        if (DEBUG)
+            console.info('>>>>  DataChannel  >>>> :', jsonMsg);
+        dataChannel.send(jsonMsg);
+    }
+    else {
+        if (DEBUG)
+            console.log('No place to send the message:', msg.event);
+    }
+};
+export const ReadyState = {
+    closed: 'closed',
+    closing: 'closing',
+    connecting: 'connecting',
+    open: 'open',
+};
