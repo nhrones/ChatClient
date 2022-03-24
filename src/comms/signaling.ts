@@ -12,7 +12,7 @@ const DEBUG = true
 
  // set the correct url for our signal-service
 const host = window.location.hostname
-const SignalServerURL = 'https://rtc-signal-server.deno.dev'
+const SignalServerURL = 'https://signal-server.deno.dev'
 export const serviceURL = (host === '127.0.0.1' || host === 'localhost')
     ? 'http://localhost:8000'
     : SignalServerURL
@@ -40,7 +40,9 @@ export const initialize = (name: string, id: string, emoji = Emoji[0]) => {
     initPeers(id, name)
     
     // close the sse when the window closes
-    window.addEventListener('beforeunload', () => {
+    addEventListener('beforeunload', (ev: BeforeUnloadEvent) => {
+        ev.preventDefault();
+        ev.returnValue = '';
         if (sse.readyState === SSE.OPEN) {
             const sigMsg = JSON.stringify({
                     from: callee.id,
