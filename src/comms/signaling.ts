@@ -127,7 +127,7 @@ export const dispatch = (event: string, data: string | string[] | object) => {
     }
 }
 
-/** registers a callback function to be executed when a event is published
+/** registers a callback function to be executed when an event is published
  *	@example onEvent('ResetTurn', this.resetTurn)
  *	@param event (string) - the event of interest
  *	@param listener (function) - a callback function */
